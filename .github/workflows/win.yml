@@ -46,8 +46,8 @@ jobs:
 
     strategy:
       matrix:
-        arch: [Win32, x64]
-        generator: ["", "Ninja Multi-Config"]
+        arch: [x64]
+        generator: [""]
 
     env:
       UPLOAD_ARTIFACT: "true"
@@ -157,7 +157,7 @@ jobs:
           API="-D TDESKTOP_API_TEST=ON"
           if [ $GITHUB_REF == 'refs/heads/nightly' ]; then
             echo "Use the open credentials."
-            API="-D TDESKTOP_API_ID=611335 -D TDESKTOP_API_HASH=d524b414d21f4d37f08684c1df41ac9c"
+            API="-D TDESKTOP_API_ID=20375173 -D TDESKTOP_API_HASH=24eb84345aeaa17005577aca84ed54cc"
           fi
           echo "TDESKTOP_BUILD_API=$API" >> $GITHUB_ENV
 
@@ -182,9 +182,10 @@ jobs:
           -D DESKTOP_APP_DISABLE_AUTOUPDATE=OFF ^
           -D DESKTOP_APP_DISABLE_CRASH_REPORTS=OFF ^
           -D DESKTOP_APP_NO_PDB=ON ^
+          -D CMAKE_BUILD_TYPE=Release ^
           %TDESKTOP_BUILD_DEFINE%
 
-          cmake --build ..\out --config Debug --parallel
+          cmake --build ..\out --config Release --parallel
 
       - name: Move artifact.
         if: (env.UPLOAD_ARTIFACT == 'true') || (github.ref == 'refs/heads/nightly')
