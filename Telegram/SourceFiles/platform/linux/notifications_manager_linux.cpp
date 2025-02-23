@@ -139,6 +139,32 @@ bool UseGNotification() {
 	return KSandbox::isFlatpak() && !ServiceRegistered;
 }
 
+GLib::Variant AnyVectorToVariant(const std::vector<std::any> &value) {
+	return GLib::Variant::new_array(
+		value | ranges::views::transform([](const std::any &value) {
+			try {
+				return GLib::Variant::new_variant(
+					GLib::Variant::new_uint64(std::any_cast<uint64>(value)));
+			} catch (...) {
+			}
+
+			try {
+				return GLib::Variant::new_variant(
+					GLib::Variant::new_int64(std::any_cast<int64>(value)));
+			} catch (...) {
+			}
+
+			try {
+				return GLib::Variant::new_variant(
+					AnyVectorToVariant(
+						std::any_cast<std::vector<std::any>>(value)));
+			} catch (...) {
+			}
+
+			return GLib::Variant(nullptr);
+		}) | ranges::to_vector);
+}
+
 class NotificationData final : public base::has_weak_ptr {
 public:
 	using NotificationId = Window::Notifications::Manager::NotificationId;
@@ -238,40 +264,17 @@ bool NotificationData::init(const Info &info) {
 			set_category(_notification.gobj_(), "im.received");
 		}
 
-		const auto peer = info.peer;
-
-		const auto notificationVariant = GLib::Variant::new_array({
-			GLib::Variant::new_dict_entry(
-				GLib::Variant::new_string("session"),
-				GLib::Variant::new_variant(
-					GLib::Variant::new_uint64(peer->session().uniqueId()))),
-			GLib::Variant::new_dict_entry(
-				GLib::Variant::new_string("peer"),
-				GLib::Variant::new_variant(
-					GLib::Variant::new_uint64(peer->id.value))),
-			GLib::Variant::new_dict_entry(
-				GLib::Variant::new_string("peer"),
-				GLib::Variant::new_variant(
-					GLib::Variant::new_uint64(peer->id.value))),
-			GLib::Variant::new_dict_entry(
-				GLib::Variant::new_string("topic"),
-				GLib::Variant::new_variant(
-					GLib::Variant::new_int64(info.topicRootId.bare))),
-			GLib::Variant::new_dict_entry(
-				GLib::Variant::new_string("msgid"),
-				GLib::Variant::new_variant(
-					GLib::Variant::new_int64(info.itemId.bare))),
-		});
+		const auto idVariant = AnyVectorToVariant(_id.toAnyVector());
 
 		_notification.set_default_action_and_target(
 			"app.notification-activate",
-			notificationVariant);
+			idVariant);
 
 		if (!info.options.hideMarkAsRead) {
 			_notification.add_button_with_target(
 				tr::lng_context_mark_read(tr::now).toStdString(),
 				"app.notification-mark-as-read",
-				notificationVariant);
+				idVariant);
 		}
 
 		return true;
@@ -508,16 +511,16 @@ void NotificationData::close() {
 
 void NotificationData::setImage(QImage image) {
 	if (_notification) {
-		QByteArray imageData;
-		QBuffer buffer(&imageData);
+		const auto imageData = std::make_shared<QByteArray>();
+		QBuffer buffer(imageData.get());
 		buffer.open(QIODevice::WriteOnly);
 		image.save(&buffer, "PNG");
 
 		_notification.set_icon(
 			Gio::BytesIcon::new_(
 				GLib::Bytes::new_with_free_func(
-					reinterpret_cast<const uchar*>(imageData.constData()),
-					imageData.size(),
+					reinterpret_cast<const uchar*>(imageData->constData()),
+					imageData->size(),
 					[imageData] {})));
 
 		return;
@@ -579,7 +582,6 @@ private:
 
 	XdgNotifications::NotificationsProxy _proxy;
 	XdgNotifications::Notifications _interface;
-	rpl::lifetime _lifetime;
 
 };
 
@@ -757,56 +759,6 @@ Manager::Private::Private(not_null<Manager*> manager)
 				[](const std::string &a, const std::string &b) {
 					return a + (a.empty() ? "" : ", ") + b;
 				}).c_str()));
-	}
-
-	if (auto actionMap = Gio::ActionMap(Gio::Application::get_default())) {
-		const auto dictToNotificationId = [](GLib::VariantDict dict) {
-			return NotificationId{
-				.contextId = ContextId{
-					.sessionId = dict.lookup_value("session").get_uint64(),
-					.peerId = PeerId(dict.lookup_value("peer").get_uint64()),
-					.topicRootId = dict.lookup_value("topic").get_int64(),
-				},
-				.msgId = dict.lookup_value("msgid").get_int64(),
-			};
-		};
-
-		auto activate = gi::wrap(
-			G_SIMPLE_ACTION(
-				actionMap.lookup_action("notification-activate").gobj_()),
-			gi::transfer_none);
-
-		const auto activateSig = activate.signal_activate().connect([=](
-				Gio::SimpleAction,
-				GLib::Variant parameter) {
-			Core::Sandbox::Instance().customEnterFromEventLoop([&] {
-				_manager->notificationActivated(
-					dictToNotificationId(GLib::VariantDict::new_(parameter)));
-			});
-		});
-
-		_lifetime.add([=]() mutable {
-			activate.disconnect(activateSig);
-		});
-
-		auto markAsRead = gi::wrap(
-			G_SIMPLE_ACTION(
-				actionMap.lookup_action("notification-mark-as-read").gobj_()),
-			gi::transfer_none);
-
-		const auto markAsReadSig = markAsRead.signal_activate().connect([=](
-				Gio::SimpleAction,
-				GLib::Variant parameter) {
-			Core::Sandbox::Instance().customEnterFromEventLoop([&] {
-				_manager->notificationReplied(
-					dictToNotificationId(GLib::VariantDict::new_(parameter)),
-					{});
-			});
-		});
-
-		_lifetime.add([=]() mutable {
-			markAsRead.disconnect(markAsReadSig);
-		});
 	}
 }
 

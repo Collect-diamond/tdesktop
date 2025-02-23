@@ -188,10 +188,16 @@ void Manager::checkLastInput() {
 
 void Manager::startAllHiding() {
 	if (!hasReplyingNotification()) {
+		int notHidingCount = 0;
 		for (const auto &notification : _notifications) {
-			notification->startHiding();
+			if (notification->isShowing()) {
+				++notHidingCount;
+			} else {
+				notification->startHiding();
+			}
 		}
-		if (_hideAll && _queuedNotifications.size() < 2) {
+		notHidingCount += _queuedNotifications.size();
+		if (_hideAll && notHidingCount < 2) {
 			_hideAll->startHiding();
 		}
 	}
@@ -549,10 +555,6 @@ void Widget::hideStop() {
 
 void Widget::hideAnimated(float64 duration, const anim::transition &func) {
 	_hiding = true;
-	// Stop the previous animation so as to make sure that the notification
-	// is fully restored before hiding it again.
-	// Relates to https://github.com/telegramdesktop/tdesktop/issues/28811.
-	_a_opacity.stop();
 	_a_opacity.start([this] { opacityAnimationCallback(); }, 1., 0., duration, func);
 }
 

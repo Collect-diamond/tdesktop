@@ -9,7 +9,10 @@
                     "--compile-commands-dir=${workspaceFolder}/out"
                 ],
                 "cmake.generator": "Ninja Multi-Config",
-                "cmake.buildDirectory": "${workspaceFolder}/out"
+                "cmake.buildDirectory": "${workspaceFolder}/out",
+                "cmake.configureSettings": {
+                    "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+                }
             },
             "extensions": [
                 "ms-vscode.cpptools-extension-pack",
